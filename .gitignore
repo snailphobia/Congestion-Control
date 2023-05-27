@@ -30,3 +30,16 @@
 *.exe
 *.out
 *.app
+
+*.o
+.ipynb_checkpoints/
+htsim
+*.dat
+*.plot
+htsim_dumbell_cc
+htsim_dumbell_ndptunnel
+parse_output
+*.a
+writeup.pdf
+team.secret
+archive.zip
