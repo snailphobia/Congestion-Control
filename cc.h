@@ -12,11 +12,11 @@
 #include <map>
 //#include "util.h"
 #include "math.h"
-#include "config.h"
-#include "network.h"
-#include "ccpacket.h"
-#include "queue.h"
-#include "eventlist.h"
+#include "libhtsim/config.h"
+#include "libhtsim/network.h"
+#include "libhtsim/ccpacket.h"
+#include "libhtsim/queue.h"
+#include "libhtsim/eventlist.h"
 
 #define timeInf 0
 

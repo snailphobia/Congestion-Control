@@ -3,9 +3,9 @@
 #include <iostream>
 #include <algorithm>
 #include "cc.h"
-#include "queue.h"
+#include "libhtsim/queue.h"
 #include <stdio.h>
-#include "switch.h"
+#include "libhtsim/switch.h"
 using namespace std;
 
 ////////////////////////////////////////////////////////////////
