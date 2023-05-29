@@ -178,7 +178,7 @@ void CCSrc::processAck(const CCAck& ack) {
     if (dMin) dMin = min(dMin, rtt);
     else dMin = rtt;
 
-    if (_cwnd < _ssthresh) _cwnd += _mss * abs((double)_ssthresh - _cwnd) / ((double) _ssthresh) * (1 - _C);
+    if (_cwnd < _ssthresh) _cwnd += _mss * abs((double)_ssthresh - _cwnd) / ((double) _ssthresh) * (0.69);
     else {
         delta = cubic_update(*this, ts);
         if (cwnd_delta > delta)
