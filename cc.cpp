@@ -14,7 +14,7 @@ using namespace std;
 ////////////////////////////////////////////////////////////////
 
 #define _C      0.4
-#define _beta   0.5
+#define _beta   0.2
 
 int CCSrc::_global_node_count = 0;
 unsigned long dMin = 0;
@@ -138,8 +138,8 @@ static int cubic_update(const CCSrc& self, const simtime_picosec timestamp) {
 
 void CCSrc::processNack(const CCNack& nack){    
     //cout << "CC " << _name << " got NACK " <<  nack.ackno() << _highest_sent << " at " << timeAsMs(eventlist().now()) << " us" << endl;    
-    // _nacks_received ++;    
-    // _flightsize -= _mss;    
+    _nacks_received ++;
+    _flightsize -= _mss;    
     
     // if (nack.ackno()>=_next_decision) {    
     //     _cwnd = _cwnd / 2;    
@@ -154,10 +154,10 @@ void CCSrc::processNack(const CCNack& nack){
     // }
     estart = 0;
     if (_cwnd < w_last && fconv) 
-        w_last = (2 - _beta) / 2;
+        w_last = _cwnd * (2 - _beta) / 2;
     else
         w_last = _cwnd;
-    _ssthresh = _cwnd;
+    _ssthresh = w_last;
     _cwnd = _cwnd * (1 - _beta);
 }
 
@@ -165,8 +165,8 @@ void CCSrc::processNack(const CCNack& nack){
 void CCSrc::processAck(const CCAck& ack) {    
     // CCAck::seq_t ackno = ack.ackno();    
     
-    // _acks_received++;
-    // _flightsize -= _mss;    
+    _acks_received++;
+    _flightsize -= _mss;    
     
     // if (_cwnd < _ssthresh)    
     //     _cwnd += _mss;    
@@ -178,11 +178,11 @@ void CCSrc::processAck(const CCAck& ack) {
     if (dMin) dMin = min(dMin, rtt);
     else dMin = rtt;
 
-    if (_cwnd <= _ssthresh) _cwnd += _mss;
+    if (_cwnd < _ssthresh) _cwnd += _mss * abs((double)_ssthresh - _cwnd) / ((double) _ssthresh) * (1 - _C);
     else {
         delta = cubic_update(*this, ts);
         if (cwnd_delta > delta)
-            _cwnd += _mss, cwnd_delta = 0;
+            _cwnd += delta * _mss, cwnd_delta = 0;
         else cwnd_delta += 1;
     }
     //cout << "CWNDI " << _cwnd/_mss << endl;    
@@ -208,7 +208,7 @@ void CCSrc::receivePacket(Packet& pkt)
     default:
         reset();
         cout << "Got packet with type " << pkt.type() << endl;
-        abort();
+        // abort();
     }
 
     //now send packets!
