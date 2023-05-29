@@ -13,8 +13,8 @@ using namespace std;
 //  un algoritm de congestion control se gaseste aici.
 ////////////////////////////////////////////////////////////////
 
-#define _C      0.4
-#define _beta   0.2
+#define _C      0.30
+#define _beta   0.20
 
 int CCSrc::_global_node_count = 0;
 unsigned long dMin = 0;
@@ -99,7 +99,7 @@ static int cubic_update(const CCSrc& self, const simtime_picosec timestamp) {
         ack_count = 1;
     }
     auto t = timestamp + dMin - estart;
-    auto target = origin_point + _C * pow(t - _K, 3);
+    auto target = origin_point + _C * pow(t - _K, 5);
 
     if (target > self._cwnd) 
         delta = self._cwnd / (target - self._cwnd);
@@ -140,18 +140,7 @@ void CCSrc::processNack(const CCNack& nack){
     //cout << "CC " << _name << " got NACK " <<  nack.ackno() << _highest_sent << " at " << timeAsMs(eventlist().now()) << " us" << endl;    
     _nacks_received ++;
     _flightsize -= _mss;    
-    
-    // if (nack.ackno()>=_next_decision) {    
-    //     _cwnd = _cwnd / 2;    
-    //     if (_cwnd < _mss)    
-    //         _cwnd = _mss;    
 
-    //     _ssthresh = _cwnd;
-    //     //cout << "CWNDD " << _cwnd/_mss << endl; 
-    //     // eventlist.now
-    
-    //     _next_decision = _highest_sent + _cwnd;    
-    // }
     estart = 0;
     if (_cwnd < w_last && fconv) 
         w_last = _cwnd * (2 - _beta) / 2;
@@ -167,27 +156,21 @@ void CCSrc::processAck(const CCAck& ack) {
     
     _acks_received++;
     _flightsize -= _mss;    
-    
-    // if (_cwnd < _ssthresh)    
-    //     _cwnd += _mss;    
-    // else    
-    //     _cwnd += _mss * _mss / _cwnd;    
+
     auto ts = ack.ts();    
     auto rtt = eventlist().now() - ts;
 
     if (dMin) dMin = min(dMin, rtt);
     else dMin = rtt;
 
-    if (_cwnd < _ssthresh) _cwnd += _mss * abs((double)_ssthresh - _cwnd) / ((double) _ssthresh) * (0.69);
+    if (_cwnd < _ssthresh) _cwnd += _mss * abs((double)_ssthresh - _cwnd) / ((double) _ssthresh) * (0.72);
     else {
         delta = cubic_update(*this, ts);
         if (cwnd_delta > delta)
             _cwnd += delta * _mss, cwnd_delta = 0;
         else cwnd_delta += 1;
     }
-    //cout << "CWNDI " << _cwnd/_mss << endl;    
-}    
-
+}  
 
 /* Functia de receptie, in functie de ce primeste cheama processLoss sau processACK */
 void CCSrc::receivePacket(Packet& pkt) 
