@@ -3,17 +3,31 @@
 #include <iostream>
 #include <algorithm>
 #include "cc.h"
-#include "libhtsim/queue.h"
+#include "queue.h"
 #include <stdio.h>
-#include "libhtsim/switch.h"
+#include "switch.h"
 using namespace std;
 
 ////////////////////////////////////////////////////////////////
 //  CC SOURCE. Aici este codul care ruleaza pe transmitatori. Tot ce avem nevoie pentru a implementa
 //  un algoritm de congestion control se gaseste aici.
 ////////////////////////////////////////////////////////////////
-int CCSrc::_global_node_count = 0;
 
+#define _C      0.4
+#define _beta   0.5
+
+int CCSrc::_global_node_count = 0;
+unsigned long dMin = 0;
+static simtime_picosec duration = 0;
+static auto cwnd_delta = 0;
+static double origin_point = 0.0;
+static simtime_picosec estart = 0;
+static auto ack_count = 0,
+            max_count = 0;
+static int delta = 0;
+static double w_last = 0.0, w_tcp = 0.0, _K = 0.0; 
+static bool friendliness = true,
+            fconv = true;
 CCSrc::CCSrc(EventList &eventlist)
     : EventSource(eventlist,"cc"), _flow(NULL)
 {
@@ -35,10 +49,20 @@ CCSrc::CCSrc(EventList &eventlist)
     _flow._name = _nodename;
     setName(_nodename);
 }
+static void reset() {
+    w_last = 0;
+    w_tcp = 0;
+    ack_count = 0;
+    origin_point = 0.0;
+    estart = 0;
+    dMin = 0;
+    _K = 0.0;
+}
 
 /* Porneste transmisia fluxului de octeti */
 void CCSrc::startflow(){
     cout << "Start flow " << _flow._name << " at " << timeAsSec(eventlist().now()) << "s" << endl;
+    reset();
     _flow_started = true;
     _highest_sent = 0;
     _packets_sent = 0;
@@ -59,6 +83,39 @@ void CCSrc::connect(Route* routeout, Route* routeback, CCSink& sink, simtime_pic
     eventlist().sourceIsPending(*this,starttime);
 }
 
+
+static int cubic_update(const CCSrc& self, const simtime_picosec timestamp) {
+    ack_count++;
+    double _K = 0.0;
+    if (estart <= 0) {
+        estart = timestamp;
+        if (self._cwnd < w_last) {
+            _K = cbrt((w_last - self._cwnd) / _C);
+            origin_point = w_last;
+        } else {
+            _K = 0.0;
+            origin_point = self._cwnd;
+        }
+        ack_count = 1;
+    }
+    auto t = timestamp + dMin - estart;
+    auto target = origin_point + _C * pow(t - _K, 3);
+
+    if (target > self._cwnd) 
+        delta = self._cwnd / (target - self._cwnd);
+    else
+        delta = 100 * self._cwnd;
+
+    if (friendliness) {
+        w_tcp = w_tcp + 3 * _beta / (2 - _beta) * ((double)ack_count) / self._cwnd;
+        ack_count = 0;
+        if (w_tcp > self._cwnd) {
+            max_count = self._cwnd / (w_tcp - self._cwnd);
+            if (delta > max_count) delta = max_count;
+        }
+    }
+    return delta;
+}
 
 /* Variabilele cu care vom lucra:
     _nacks_received
@@ -81,35 +138,53 @@ void CCSrc::connect(Route* routeout, Route* routeback, CCSink& sink, simtime_pic
 
 void CCSrc::processNack(const CCNack& nack){    
     //cout << "CC " << _name << " got NACK " <<  nack.ackno() << _highest_sent << " at " << timeAsMs(eventlist().now()) << " us" << endl;    
-    _nacks_received ++;    
-    _flightsize -= _mss;    
+    // _nacks_received ++;    
+    // _flightsize -= _mss;    
     
-    if (nack.ackno()>=_next_decision) {    
-        _cwnd = _cwnd / 2;    
-        if (_cwnd < _mss)    
-            _cwnd = _mss;    
+    // if (nack.ackno()>=_next_decision) {    
+    //     _cwnd = _cwnd / 2;    
+    //     if (_cwnd < _mss)    
+    //         _cwnd = _mss;    
+
+    //     _ssthresh = _cwnd;
+    //     //cout << "CWNDD " << _cwnd/_mss << endl; 
+    //     // eventlist.now
     
-        _ssthresh = _cwnd;
-            
-        //cout << "CWNDD " << _cwnd/_mss << endl; 
-        // eventlist.now
-    
-        _next_decision = _highest_sent + _cwnd;    
-    }    
-}    
-    
+    //     _next_decision = _highest_sent + _cwnd;    
+    // }
+    estart = 0;
+    if (_cwnd < w_last && fconv) 
+        w_last = (2 - _beta) / 2;
+    else
+        w_last = _cwnd;
+    _ssthresh = _cwnd;
+    _cwnd = _cwnd * (1 - _beta);
+}
+
 /* Process an ACK.  Mostly just housekeeping*/    
 void CCSrc::processAck(const CCAck& ack) {    
-    CCAck::seq_t ackno = ack.ackno();    
+    // CCAck::seq_t ackno = ack.ackno();    
     
-    _acks_received++;    
-    _flightsize -= _mss;    
+    // _acks_received++;
+    // _flightsize -= _mss;    
     
-    if (_cwnd < _ssthresh)    
-        _cwnd += _mss;    
-    else    
-        _cwnd += _mss*_mss / _cwnd;    
-    
+    // if (_cwnd < _ssthresh)    
+    //     _cwnd += _mss;    
+    // else    
+    //     _cwnd += _mss * _mss / _cwnd;    
+    auto ts = ack.ts();    
+    auto rtt = eventlist().now() - ts;
+
+    if (dMin) dMin = min(dMin, rtt);
+    else dMin = rtt;
+
+    if (_cwnd <= _ssthresh) _cwnd += _mss;
+    else {
+        delta = cubic_update(*this, ts);
+        if (cwnd_delta > delta)
+            _cwnd += _mss, cwnd_delta = 0;
+        else cwnd_delta += 1;
+    }
     //cout << "CWNDI " << _cwnd/_mss << endl;    
 }    
 
@@ -131,6 +206,7 @@ void CCSrc::receivePacket(Packet& pkt)
         pkt.free();
         break;
     default:
+        reset();
         cout << "Got packet with type " << pkt.type() << endl;
         abort();
     }
@@ -232,7 +308,3 @@ void CCSink::send_nack(simtime_picosec ts, CCPacket::seq_t ackno) {
     nack = CCNack::newpkt(_src->_flow, *_route, ackno,ts);
     nack->sendOn();
 }
-
-
-
-
